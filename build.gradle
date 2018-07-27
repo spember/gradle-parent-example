@@ -1,0 +1,50 @@
+buildscript {
+    repositories {
+        mavenLocal()
+        jcenter()
+    }
+    dependencies {
+        classpath 'org.jfrog.buildinfo:build-info-extractor-gradle:4.0.0'
+    }
+}
+apply plugin: 'java'
+apply plugin: 'maven-publish'
+apply plugin: 'com.jfrog.artifactory'
+
+repositories {
+    mavenLocal()
+    jcenter()
+    mavenCentral()
+}
+
+group = 'com.company-name'
+version = '0.0.2'
+ext.isSnapshot = version.contains('SNAPSHOT')
+
+dependencies {
+}
+
+artifactory {
+    contextUrl = System.getenv("ARTIFACTORY_URL")
+    publish {
+        repository {
+            repoKey = isSnapshot ? 'internal-libs-snapshot-local' : 'internal-libs-release-local'
+            username = System.getenv('ARTIFACTORY_USERNAME')
+            password = System.getenv('ARTIFACTORY_PASSWORD')
+            maven = true
+        }
+        defaults {
+            publications 'mavenJava'
+            publishBuildInfo = true
+            publishArtifacts = true
+        }
+    }
+}
+
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            from components.java
+        }
+    }
+}

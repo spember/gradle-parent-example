@@ -1,0 +1,229 @@
+buildscript {
+    repositories {
+        maven {
+            url "https://plugins.gradle.org/m2/"
+        }
+        maven {
+            url "http://build.company-name.com:8081/artifactory/internal-libs-release-local"
+            credentials {
+                username = System.getenv('ARTIFACTORY_USERNAME')
+                password = System.getenv('ARTIFACTORY_PASSWORD')
+            }
+        }
+    }
+    dependencies {
+        classpath "org.sonarsource.scanner.gradle:sonarqube-gradle-plugin:2.6.1"
+        classpath 'com.company-name:build-tools:1.0.1'
+
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'jacoco'
+apply plugin: org.sonarqube.gradle.SonarQubePlugin
+
+
+ext {
+    jacksonVersion = '2.8.7'
+    jooqVersion = '3.10.1'
+    ratpackVersion = '1.5.1'
+    // while there is the spring gradle dependency management plugin, it doesn't work so well with sub-projects/modules
+    // While different from maven, this is the pattern that the gradle authors recommend (ext variables are available
+    // throughout the scope of the project.
+    //
+    // usage like so:
+    // dependencies {
+    //      compile libraries.guava
+    //      compile libraries.jackson
+    //      compile libraries.commons.io
+    //      testCompile libraries.junit
+    // }
+    libraries = [
+            guava: 'com.google.guava:guava:21.0',
+            junit: 'junit:junit:4.12',
+            commons: [
+                    lang: 'commons-lang:commons-lang:2.6',
+                    beanutils: 'commons-beanutils:commons-beanutils:1.9.3',
+                    io: 'commons-io:commons-io:2.5'
+            ],
+            mokito: 'org.mockito:mockito-core:2.7.16',
+            rxjava: 'io.reactivex:rxjava:1.1.2',
+            rxjava2: 'io.reactivex.rxjava2:rxjava:2.1.8',
+            slf4j: 'org.slf4j:slf4j-api:1.7.25',
+            logback: dependencies.create('ch.qos.logback:logback-classic:1.1.8') {
+                exclude group: 'org.slf4j', module: 'slf4j-api'
+            },
+
+            jackson: [ // bundles of deps under the same name!
+                    "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}",
+                    "com.fasterxml.jackson.datatype:jackson-datatype-jdk8:${jacksonVersion}",
+                    "com.fasterxml.jackson.datatype:jackson-datatype-guava:${jacksonVersion}",
+                    "com.fasterxml.jackson.datatype:jackson-datatype-jsr310:${jacksonVersion}",
+                    "com.fasterxml.jackson.datatype:jackson-module-parameter-names:${jacksonVersion}",
+            ],
+            jooq: [
+                    "org.jooq:jooq:${jooqVersion}",
+                    "org.jooq:jooq-meta:${jooqVersion}",
+                    "org.jooq:jooq-codegen:${jooqVersion}",
+                    "org.jooq:jool:0.9.12"
+            ],
+            hikari: dependencies.create('com.zaxxer:HikariCP:2.5.1') {
+                exclude module: "slf4j-api"
+                force = true
+            },
+
+            rabbitmq: dependencies.create('com.rabbitmq:amqp-client:4.2.0') {
+                exclude module: "slf4j-api"
+            },
+            ratpack: [
+                    core: [
+                            // also loads guice, session, and core
+                            dependencies.create("io.ratpack:ratpack-handlebars:${ratpackVersion}") {
+                                exclude group: 'org.slf4j', module: 'slf4j-api'
+                                exclude group: 'org.reactivestreams', module: 'reactive-streams'
+                            },
+                    ],
+                    rx: [
+                            dependencies.create('me.drmaas:ratpack-rx2:0.5.0') {
+                                //exclude group: 'org.reactivestreams', module: 'reactive-streams'
+                                exclude group: 'io.ratpack', module: 'ratpack-core'
+                                exclude group: 'io.reactivex.rxjava2', module: 'rxjava'
+                                force = true
+                            },
+                            dependencies.create("io.ratpack:ratpack-rx:${ratpackVersion}") {
+                                exclude group: 'org.reactivestreams', module: 'reactive-streams'
+                                force = true
+                            }
+                    ],
+                    test: [
+                            // used for testing
+                            "io.ratpack:ratpack-remote:${ratpackVersion}",
+                            "io.ratpack:ratpack-test:${ratpackVersion}",
+                    ]
+            ]
+
+    ]
+}
+
+// while this sets some defaults, all properties can be overwritten. In fact, clients will likely want to add
+// 'sonar.exclusions'
+// unlike other plugins, sonarqube applies to allprojects
+sonarqube {
+    properties {
+        property "sonar.projectName", project.name
+        property "sonar.projectKey", "org.sonarqube:java-gradle-simple"
+        property "sonar.host.url", "http://sonar.company-name.com"
+        property "sonar.login", System.getenv('SONAR_TOKEN')
+        property "language", "java"
+        property "projectKey", "${project.group}:${project.name}"
+        property "sonar.tests", ''
+    }
+}
+
+// allprojects is necessary to apply these changes to the root as well as any submodules we have, a pattern that
+// we will likely increasingly use
+allprojects {
+    apply plugin: "java"
+    apply plugin: 'jacoco'
+
+    // the following works to prevent builds if dependency convergence fails. However, cannot figure out how to exclude
+    // from a plugin. Will investigate asap
+    configurations.all {
+        resolutionStrategy {
+            // fail eagerly on version conflict (includes transitive dependencies)
+            // e.g. multiple different versions of the same dependency (group and name are equal)
+            failOnVersionConflict()
+            // preferProjectModules() is helpful for debugging dependency clashes, set locally in your project to get the help
+            //preferProjectModules()
+        }
+    }
+
+    repositories {
+        mavenLocal()
+        jcenter()
+        mavenCentral()
+        maven {
+            url "http://build.company-name.com:8081/artifactory/libs-internal"
+            credentials {
+                username = System.getenv('ARTIFACTORY_USERNAME')
+                password = System.getenv('ARTIFACTORY_PASSWORD')
+            }
+        }
+        maven {
+            url "http://build.company-name.com:8081/artifactory/internal-libs-release-local"
+            credentials {
+                username = System.getenv('ARTIFACTORY_USERNAME')
+                password = System.getenv('ARTIFACTORY_PASSWORD')
+            }
+        }
+    }
+
+
+    jacoco {
+        toolVersion = "0.7.9"
+    }
+
+    jacocoTestReport {
+        reports {
+            xml.enabled false
+            html.enabled true
+            html.destination file("${buildDir}/jacocoHtml")
+        }
+    }
+
+    task testUnit(type: Test) {
+        description = "Executes only unit tests using the junit category 'com.company-name.test.junit.UnitTest. This" +
+                " can be found in our company-name-test-junit module"
+        useJUnit {
+            includeCategories 'com.company-name.test.junit.UnitTest'
+            excludeCategories 'com.company-name.test.junit.IntegrationTest'
+        }
+    }
+
+    task testIntegration(type:Test) {
+        description = "Executes only tests using the junit category 'com.company-name.test.junit.IntegrationTest. " +
+                "This can be found in our company-name-test-junit module"
+        useJUnit {
+            includeCategories 'com.company-name.test.junit.IntegrationTest'
+            excludeCategories 'com.company-name.test.junit.UnitTest'
+        }
+    }
+
+    // before any project builds a jar
+    jar.dependsOn testUnit
+    // ensures that any time a project or subproject executes 'test', we run jacocoTestReport afterwards (if successful)
+    test.finalizedBy jacocoTestReport
+}
+
+subprojects {
+    apply plugin: "checkstyle"
+
+    checkstyle {
+        config = resources.text.fromString(getClass().getResource("com/company-name/checkstyle/checkstyle.xml").text)
+    }
+}
+
+// this could be extracted into a class. do this if it becomes any more complicated
+task listCompanyNameLibraries(type:Task) {
+    description = "Lists the libraries that can be used as dependencies in your project"
+    doLast() {
+        println "Libraries available:"
+        libraries.sort().each {name, value ->
+            if (value instanceof Map) {
+                println "\t* ${name}"
+                value.each {k, v ->
+                    println "\t\t- ${k}: (${v})"
+                }
+            } else {
+                println "\t* ${name} (${value})"
+            }
+
+        }
+    }
+}
+
+
+
+
+
+
